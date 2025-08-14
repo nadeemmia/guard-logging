@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guard Logs Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body, #map{ height:100%; margin:0; }
+    .panel{position:absolute; top:10px; left:10px; background:#fff; padding:10px; border-radius:10px; box-shadow:0 6px 24px rgba(0,0,0,.15); z-index:1000}
+    input, select, button{padding:6px; font-size:14px;}
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="panel">
+    <label>Guard: <select id="guardFilter"><option value="">All</option></select></label>
+    <label>Since: <input type="datetime-local" id="since"></label>
+    <button id="reload">Reload</button>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+  const CSV_URL = https://docs.google.com/spreadsheets/d/e/2PACX-1vQy8jO6DZ1K1E5kn6q-PtEnes3trVIIrqgTNWp7yok0vqG67dUloglfS6FN_3bkkyowhaMT4Br-iWFA/pub?gid=29638485&single=true&output=csv;
+
+  async function fetchCSV(){
+    const res = await fetch(CSV_URL, {cache:'no-store'});
+    return await res.text();
+  }
+  function parseCSV(text){
+    const lines = text.split(/\r?\n/).filter(Boolean);
+    const headers = lines.shift().split(',');
+    const idx = name => headers.indexOf(name);
+    const iTs = idx('Timestamp'), iGuardId = idx('GuardID'), iName = idx('Name');
+    const iLat = idx('Latitude'), iLng = idx('Longitude'), iAcc = idx('AccuracyMeters');
+
+    return lines.map(l=>{
+      // naive split works if fields contain no commas; for production consider a CSV parser
+      const parts = l.split(',');
+      return {
+        ts: new Date(parts[iTs]),
+        guardId: parts[iGuardId],
+        name: parts[iName],
+        lat: parseFloat(parts[iLat]),
+        lng: parseFloat(parts[iLng]),
+        acc: parts[iAcc] ? Number(parts[iAcc]) : null
+      };
+    }).filter(x=> isFinite(x.lat) && isFinite(x.lng));
+  }
+
+  const map = L.map('map').setView([-26.2041, 28.0473], 10); // Johannesburg default
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  let markers = [];
+
+  function clearMarkers(){ markers.forEach(m=> m.remove()); markers = []; }
+
+  function populateFilters(data){
+    const sel = document.getElementById('guardFilter');
+    const names = Array.from(new Set(data.map(d=> d.name))).sort();
+    sel.innerHTML = '<option value="">All</option>' + names.map(n=>`<option>${n}</option>`).join('');
+  }
+
+  async function load(){
+    const csv = await fetchCSV();
+    let rows = parseCSV(csv);
+
+    const guard = document.getElementById('guardFilter').value;
+    const since = document.getElementById('since').value ? new Date(document.getElementById('since').value) : null;
+
+    if(guard) rows = rows.filter(r=> r.name === guard);
+    if(since) rows = rows.filter(r=> r.ts >= since);
+
+    clearMarkers();
+    rows.forEach(r=>{
+      const m = L.marker([r.lat, r.lng]).addTo(map).bindPopup(`
+        <b>${r.name}</b><br/>
+        ${r.ts.toLocaleString()}<br/>
+        (${r.lat.toFixed(5)}, ${r.lng.toFixed(5)})<br/>
+        ${r.acc ? '±' + Math.round(r.acc) + ' m' : ''}
+      `);
+      markers.push(m);
+    });
+
+    if(rows.length){
+      const grp = L.featureGroup(markers);
+      map.fitBounds(grp.getBounds().pad(0.2));
+    }
+
+    if(!load._filtersInit){ populateFilters(rows); load._filtersInit = true; }
+  }
+
+  document.getElementById('reload').addEventListener('click', load);
+  load();
+  </script>
+</body>
+</html>
