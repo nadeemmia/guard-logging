@@ -3,106 +3,92 @@
 <head>
   <meta charset="UTF-8">
   <title>Guard Check-In</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 2em;
-      background: #f5f5f5;
-      color: #333;
-      text-align: center;
-    }
-    h1 {
-      color: #0066cc;
-    }
-    select, button {
-      padding: 10px;
-      margin: 10px;
-      font-size: 1rem;
-      width: 80%;
-      max-width: 300px;
-    }
-    #status {
-      margin-top: 20px;
-      font-weight: bold;
-      color: green;
-    }
-  </style>
 </head>
 <body>
-  <h1>Guard Check-In</h1>
-  
-  <label for="guardName">Select Your Name:</label><br>
-  <select id="guardName">
-    <option>Loading...</option>
-  </select><br>
+  <h2>Guard Check-In</h2>
 
-  <button onclick="checkIn()">Check In</button>
-  
-  <div id="status"></div>
+  <label for="guardSelect">Select Guard:</label>
+  <select id="guardSelect">
+    <option value="">Loading...</option>
+  </select>
+  <br><br>
+
+  <button id="checkInBtn">Check In</button>
+
+  <p id="status"></p>
 
   <script>
-    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyqX1pQolv02h06CGgvGSwHKOvy80LJldEJpauyIXZONJhhdUqtzjofqqGbKQSPzrQG/exec"; // paste your Apps Script Web App URL
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyqX1pQolv02h06CGgvGSwHKOvy80LJldEJpauyIXZONJhhdUqtzjofqqGbKQSPzrQG/exec";
 
-    // Load guard names from Google Sheet
+    // ✅ Load guard names on page load
     async function loadGuards() {
       try {
-        const res = await fetch(SCRIPT_URL);
-        const data = await res.json();
-        const select = document.getElementById("guardName");
-        select.innerHTML = ""; // clear old options
+        const response = await fetch(SCRIPT_URL);
+        const data = await response.json();
+        const guardSelect = document.getElementById("guardSelect");
 
+        guardSelect.innerHTML = ""; // clear old options
         data.guards.forEach(name => {
-          const opt = document.createElement("option");
-          opt.value = name;
-          opt.textContent = name;
-          select.appendChild(opt);
+          const option = document.createElement("option");
+          option.value = name;
+          option.textContent = name;
+          guardSelect.appendChild(option);
         });
       } catch (err) {
-        document.getElementById("status").textContent = "Error loading guards.";
-        console.error("Error loading guards:", err);
+        document.getElementById("status").innerText = "Error loading guards: " + err;
       }
     }
 
-    // Handle check-in with GPS
-    function checkIn() {
-      const guardName = document.getElementById("guardName").value;
+    // ✅ Check-in function (now using proper POST format)
+    async function checkIn(guardName, lat, lng) {
+      const status = document.getElementById("status");
+      status.innerText = "Logging check-in...";
+
+      try {
+        const body = `name=${encodeURIComponent(guardName)}&lat=${lat}&lng=${lng}`;
+
+        const response = await fetch(SCRIPT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body
+        });
+
+        const text = await response.text();
+
+        if (text.trim() === "OK") {
+          status.innerText = "✅ Check-in logged successfully!";
+        } else {
+          status.innerText = "❌ Error logging check-in: " + text;
+        }
+      } catch (err) {
+        status.innerText = "❌ Request failed: " + err;
+      }
+    }
+
+    // ✅ Button click handler
+    document.getElementById("checkInBtn").addEventListener("click", () => {
+      const guardName = document.getElementById("guardSelect").value;
       if (!guardName) {
-        alert("Please select your name first.");
+        alert("Please select a guard first.");
         return;
       }
 
-      document.getElementById("status").textContent = "Getting location...";
-
       if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(async (pos) => {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-
-          const payload = new FormData();
-          payload.append("action", "checkin");
-          payload.append("name", guardName);
-          payload.append("lat", lat);
-          payload.append("lng", lng);
-
-          try {
-            const response = await fetch(SCRIPT_URL, { method: "POST", body: payload });
-            const result = await response.text();
-            document.getElementById("status").textContent = "Check-in logged!";
-          } catch (err) {
-            document.getElementById("status").textContent = "Error logging check-in.";
-            console.error("Error logging:", err);
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            checkIn(guardName, pos.coords.latitude, pos.coords.longitude);
+          },
+          err => {
+            alert("Location error: " + err.message);
           }
-        }, () => {
-          document.getElementById("status").textContent = "Location access denied.";
-        });
+        );
       } else {
-        document.getElementById("status").textContent = "Geolocation not supported.";
+        alert("Geolocation not supported.");
       }
-    }
+    });
 
-    // Run on page load
-    window.onload = loadGuards;
+    // Load guards when page opens
+    loadGuards();
   </script>
 </body>
 </html>
